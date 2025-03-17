@@ -40,7 +40,7 @@ value price = (value PER / forward PER) * price
 ### 성장률 추적 아이디어
 ```
 # Earning(or Revenue)의 YoY 성장률 값이 매주 어떻게 변동하는지를 이용
-3 weeks Trend = (this YoY Growth estimate) / (prev YoY Growth estimate) - 1
+3 weeks Trend = (this YoY Growth estimate) / (3week prev YoY Growth estimate) - 1
 ```
 
 
