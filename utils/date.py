@@ -1,13 +1,12 @@
 import datetime
-import holidays
 
 import pandas as pd
 
 
-def get_today(before_day=0, to_str=False):
+def get_today(before_day=0, to_str=False, str_format="%Y-%m-%d"):
     today = datetime.date.today() - datetime.timedelta(days=before_day)
     if to_str:
-        today = today.strftime("%Y-%m-%d")
+        today = today.strftime(str_format)
     return today
 
 

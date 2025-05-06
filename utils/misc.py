@@ -56,8 +56,8 @@ def write_excel(df: pd.DataFrame | list[dict], save_path=None, sheet_name=None, 
     if isinstance(df, list):
         df = pd.DataFrame.from_dict(df)
 
-    if "ticker" in df.columns:
-        df = df.set_index("ticker")
+    if "Ticker" in df.columns:
+        df = df.set_index("Ticker")
 
     df = df.sort_index(key=natsort_keygen())
 
@@ -65,7 +65,7 @@ def write_excel(df: pd.DataFrame | list[dict], save_path=None, sheet_name=None, 
         save_path = f"stock_{get_today(to_str=True)}.xlsx"
 
     if not rewrite and os.path.exists(save_path):
-        sheet_dict = pd.read_excel(save_path, sheet_name=None, index_col="ticker")
+        sheet_dict = pd.read_excel(save_path, sheet_name=None, index_col="Ticker")
         if sheet_name in sheet_dict:
             sheet_dict.pop(sheet_name)  # 중복되는 name의 sheet는 다시 써야 하므로 제거
 

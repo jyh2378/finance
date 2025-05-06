@@ -1,19 +1,32 @@
+import re
 import requests
 
 import pandas as pd
+import yahoo_fin.stock_info as stock_info
 
 
-def normalize_ticker(ticker):
-    if ticker == "BRK/A":
+def normalize_ticker(ticker: str):
+    if ticker == "BRK/A" or ticker == "BRK.A":
        ticker = "BRK-A"
-    elif ticker == "BRK/B":
+    elif ticker == "BRK/B" or ticker == "BRK.B":
         ticker = "BRK-B"
-    else:
-        pass
-    return ticker
+    elif re.match(r'\w+\.\w+', ticker):
+        ticker = ticker.split(".")[0]
+    elif "$" in ticker:
+        ticker = ticker.split("$")[0]
+
+    return ticker.replace(" ", "").strip()
 
 
-def get_all_stocks_info():
+def get_all_usa_tickers():
+    nasdaq = set(stock_info.tickers_nasdaq())
+    other = set(stock_info.tickers_other())
+    tickers = {normalize_ticker(ticker) for ticker in (nasdaq | other) if ticker}
+
+    return sorted(list(tickers))
+
+
+def get_usa_stocks_from_api(filter_by_market_cap=False, min_market_cap=1e6):
     def remove_duplicate_tickers(df):
         # Create a base ticker column by removing anything after the first special character (if it exists)
         df['base_symbol'] = df['symbol'].str.split(r'[-/^]').str[0]
@@ -55,4 +68,9 @@ def get_all_stocks_info():
     filtered_df = filtered_df.drop_duplicates(subset=["name"], keep="last")
     filtered_df = filtered_df.sort_values(["symbol"], ascending=True)
     filtered_df["symbol"] = filtered_df["symbol"].apply(normalize_ticker)
+    filtered_df = filtered_df[filtered_df["marketCap"] > 0]
+
+    if filter_by_market_cap:
+        filtered_df = filtered_df[filtered_df["marketCap"] >= min_market_cap]
+
     return filtered_df

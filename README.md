@@ -31,8 +31,8 @@
 ```
 price = PER * EPS = (PEGR * EPS growth) * EPS
 
-value PER = sector PEGR * EPS growth
-value price = (value PER / forward PER) * price
+fair PER = sector PEGR * EPS growth
+fair price = (fair PER / forward PER) * price
 
 # 영업이익 적자 회사들은 PER 대신 PSR 사용 가능
 ```

@@ -14,48 +14,52 @@ from utils import write_excel
 def get_company_fundamental(ticker, random_request=True):
     """ticker 회사의 기본 fundamental 정보를 가져옵니다."""
     print(f"##### ticker:{ticker} start #####")
-
-    extractor = YahooFinanceInfoExtractor()
-    extractor.setup_ticker(ticker)
-    name = extractor.get_company_name()
-    data = {"ticker": ticker, "name": name}
-    data.update({
-        "섹터": extractor.get_sector(),
-        "업종": extractor.get_industry(),
-        "가격": extractor.get_price()
-    })
-    data.update({
-        "작년 동분기 순수익": extractor.get_net_income(before=4),
-        "직전분기 순수익": extractor.get_net_income(before=1),
-        "현분기 순수익": extractor.get_net_income(before=0)
-    })
-    data.update({
-        "작년 동분기 영업이익": extractor.get_operating_income(before=4),
-        "직전분기 영업이익": extractor.get_operating_income(before=1),
-        "현분기 영업이익": extractor.get_operating_income(before=0)
-    })
-    data.update({
-        "작년 동분기 순매출": extractor.get_operating_revenue(before=4),
-        "직전분기 순매출": extractor.get_operating_revenue(before=1),
-        "현분기 순매출": extractor.get_operating_revenue(before=0)
-    })
-    data.update({
-        "작년 동분기 영업활동현금흐름": extractor.get_operating_cashflow(before=4),
-        "직전분기 영업활동현금흐름": extractor.get_operating_cashflow(before=1),
-        "현분기 영업활동현금흐름": extractor.get_operating_cashflow(before=0)
-    })
-    data.update({
-        "EPS": extractor.get_eps(),
-        "BPS": extractor.get_bps(),
-        "SPS": extractor.get_sps(),
-        "ROE": extractor.get_roe(),
-        "PEGR": extractor.get_pegr(),
-        "PBR": extractor.get_pbr(),
-        "PSR": extractor.get_psr(),
-    })
+    try:
+        extractor = YahooFinanceInfoExtractor()
+        extractor.setup_ticker(ticker)
+        name = extractor.get_company_name()
+        data = {"ticker": ticker, "name": name}
+        data.update({
+            "섹터": extractor.get_sector(),
+            "업종": extractor.get_industry(),
+            "가격": extractor.get_price()
+        })
+        data.update({
+            "작년 동분기 순수익": extractor.get_net_income(before=4),
+            "직전분기 순수익": extractor.get_net_income(before=1),
+            "현분기 순수익": extractor.get_net_income(before=0)
+        })
+        data.update({
+            "작년 동분기 영업이익": extractor.get_operating_income(before=4),
+            "직전분기 영업이익": extractor.get_operating_income(before=1),
+            "현분기 영업이익": extractor.get_operating_income(before=0)
+        })
+        data.update({
+            "작년 동분기 순매출": extractor.get_operating_revenue(before=4),
+            "직전분기 순매출": extractor.get_operating_revenue(before=1),
+            "현분기 순매출": extractor.get_operating_revenue(before=0)
+        })
+        data.update({
+            "작년 동분기 영업활동현금흐름": extractor.get_operating_cashflow(before=4),
+            "직전분기 영업활동현금흐름": extractor.get_operating_cashflow(before=1),
+            "현분기 영업활동현금흐름": extractor.get_operating_cashflow(before=0)
+        })
+        data.update({
+            "EPS": extractor.get_eps(),
+            "BPS": extractor.get_bps(),
+            "SPS": extractor.get_sps(),
+            "ROE": extractor.get_roe(),
+            "PEGR": extractor.get_pegr(),
+            "PBR": extractor.get_pbr(),
+            "PSR": extractor.get_psr(),
+        })
+    except:
+        logging.error(f"~~~~~~~~~~ ticker:{ticker} error ~~~~~~~~~~")
+        logging.error(traceback.format_exc())
+        exit(1)
     
     if random_request:
-        time.sleep(random.randrange(1, 2))
+        time.sleep(random.randrange(3, 5))
 
     return data
 
@@ -123,8 +127,13 @@ def make_score_sheet(excel_path):
 
 
 if __name__ == "__main__":
+
+    # 로그 설정
+    logging.basicConfig(filename='log.txt', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
     # make fundamental info sheet
     excel_path = f"stock_{get_today(to_str=True)}.xlsx"
-    # make_base_sheet(excel_path)
+    make_base_sheet(excel_path)
     make_growth_sheet(excel_path)
     make_score_sheet(excel_path)

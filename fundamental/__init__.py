@@ -1,2 +1,2 @@
 from fundamental.usa import *
-from fundamental.korea import *
+from fundamental.download import *
