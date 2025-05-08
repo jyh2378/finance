@@ -1,2 +1,1 @@
-from fundamental.usa import *
-from fundamental.download import *
+from fundamental.download_usa import *

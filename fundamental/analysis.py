@@ -37,9 +37,9 @@ class Database:
         self.summary_df = self.base_info[["Market Cap", "Sector", "Industry", "Long Business Summary"]].join(prices)
 
         self.df_dict = {}
-        self.make_valuation_df()
+        self.make_pegr_valuation()
 
-    def make_per_valuation(self, period: Literal[0, 1] = 1):
+    def make_pegr_valuation(self, period: Literal[0, 1] = 1):
         # period: 0 = this year, 1 = next year
         main_df = self.summary_df[["Sector", "Industry", "Price"]]
         agg_cols = []
@@ -75,7 +75,7 @@ class Database:
         main_df[f"Fair PER"] = fair_per
         main_df[f"Fair Price"] = fair_price
         main_df[f"Upside Potential"] = upside_potential
-        self.df_dict["per_valuation"] = main_df
+        self.df_dict["pegr_valuation"] = main_df
 
         # record on summary_df
         self.summary_df["Fair Price"] = fair_price

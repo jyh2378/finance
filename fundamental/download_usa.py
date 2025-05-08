@@ -73,9 +73,10 @@ def _postprocess_fundamental(df: pd.DataFrame, ticker: str):
 
 
 def _postprocess_price(df: pd.DataFrame, ticker: str):
-    df = df[["Close"]].T
+    df = df[["Close", "Volume"]].T
+    df.index.name = "Type"
     df["Ticker"] = ticker
-    df = df.set_index("Ticker")
+    df = df.reset_index().set_index(["Ticker", "Type"])
     df.columns = [str(col.date()) for col in df.columns]
     return df
 
