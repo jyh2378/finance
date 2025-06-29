@@ -72,8 +72,8 @@ def _postprocess_fundamental(df: pd.DataFrame, ticker: str):
     return df
 
 
-def _postprocess_price(df: pd.DataFrame, ticker: str):
-    df = df[["Close", "Volume"]].T
+def _postprocess_ohlcv(df: pd.DataFrame, ticker: str):
+    df = df[["Open", "High", "Low", "Close", "Volume"]].T
     df.index.name = "Type"
     df["Ticker"] = ticker
     df = df.reset_index().set_index(["Ticker", "Type"])
@@ -139,8 +139,8 @@ def _request_with_retry(yf_ticker: yf.Ticker, download_type: str, max_retries: i
                     logging.warning(f"'{ticker_name}'는 info 데이터가 없습니다.")
                     return None
 
-            elif download_type == "price":
-                result = _postprocess_price(yf_ticker.history(period="5d", raise_errors=True), ticker_name)
+            elif download_type == "ohlcv":
+                result = _postprocess_ohlcv(yf_ticker.history(period="5d", raise_errors=True), ticker_name)
             elif download_type == "income_statement":
                 result = _postprocess_fundamental(yf_ticker.income_stmt, ticker_name)
             elif download_type == "income_statement_quarter":
@@ -189,7 +189,7 @@ def _download(ticker: str, max_retries: int=10):
         return None, None, None, None, None, None, None, None, None
 
     # download stock info
-    price = _request_with_retry(company, "price", max_retries)
+    price = _request_with_retry(company, "ohlcv", max_retries)
     if price is None:   
         return None, None, None, None, None, None, None, None, None
     
@@ -215,7 +215,7 @@ class YahooFinanceInfoDownloader:
     def __init__(self):
         self.data = {
             "info": None,
-            "price": None,
+            "ohlcv": None,
             "income_statement": None,
             "income_statement_quarter": None,
             "balance_sheet": None,
