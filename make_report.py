@@ -7,7 +7,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 import pandas as pd
 
-from fundamental import *
+from core import *
 from utils import write_excel
 
 

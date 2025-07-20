@@ -1,7 +1,7 @@
 import datetime
 import requests
 
-from fundamental import YahooFinanceInfoDownloader
+from core import YahooFinanceInfoDownloader
 from utils import *
 
 
@@ -13,4 +13,4 @@ if __name__ == "__main__":
 
     yf_downloader = YahooFinanceInfoDownloader()
     yf_downloader.download(all_tickers, max_workers=8)
-    yf_downloader.save(f"DB/{today}")
+    yf_downloader.save(f"DB/usa/{today}")
