@@ -6,7 +6,7 @@
 # ROIC
 = NOPLAT / IC
 
-# NOPLAT
+# NOPAT(≒NOPLAT)
 = EBIT - Tax = EBIT * (1 - Tax)
 
 # IC(Invested Capital) → 계산 방식이 여러가지
