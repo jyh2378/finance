@@ -31,5 +31,16 @@ def get_quarter_end_date(quarter: int):
     return quarter_end_date[quarter - 1]
 
 
-def find_closest_date_row(df, date):
-    time_diff = df.index - pd.to_datetime(pd.to_datetime(date).replace(tzinfo=df.index.tzinfo))
+def find_closest_before_date(
+        datetimeindex: pd.DatetimeIndex, target_date: str | pd.Timestamp, strptime_fmt: str | None = None
+    ):
+    # Find the closest date in the DatetimeIndex to the target date
+    if isinstance(target_date, str):
+        target_date = pd.to_datetime(target_date, format=strptime_fmt)
+    target_date = target_date.tz_localize(datetimeindex.tz)
+
+    closest_date = datetimeindex[datetimeindex < target_date].max()
+    if pd.isna(closest_date):
+        return None
+    else:
+        return closest_date

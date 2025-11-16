@@ -1,7 +1,6 @@
 import os
-import traceback
+import re
 import string
-import math
 
 import pandas as pd
 from natsort import natsort_keygen
@@ -32,6 +31,15 @@ def is_alphabet(char):
 
 def is_number(char):
     return char.isdigit()
+
+
+def camel_to_title_case(text):
+    acronyms = {"PE": "Pe"}
+    for word, upper_word in acronyms.items():
+        text = text.replace(word, upper_word)
+    spaced = re.sub(r'([A-Z])', r' \1', text)
+    title_case = spaced.strip().title()
+    return title_case
 
 
 def measure_excel_col_length(df: pd.DataFrame):

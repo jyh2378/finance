@@ -2,8 +2,8 @@ import logging
 import os
 import time
 import random
-import trace
-import pickle
+import traceback
+from typing import get_args, Literal
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -13,17 +13,28 @@ import yfinance as yf
 
 from utils import *
 
+YFDataType = Literal[
+    "info",
+    "income_statement",
+    "income_statement_quarter",
+    "balance_sheet",
+    "balance_sheet_quarter",
+    "cash_flow",
+    "cash_flow_quarter",
+    "estimates",
+    "ohlcv"
+]
 
-def _postprocess_info(info: dict, ticker: str):
+def _camel_to_title_case(text: str) -> str:
+    acronyms = {"PE": "Pe"}
+    for word, upper_word in acronyms.items():
+        text = text.replace(word, upper_word)
+    spaced = re.sub(r'([A-Z])', r' \1', text)
+    title_case = spaced.strip().title()
+    return title_case
 
-    def camel_to_title_case(text):
-        acronyms = {"PE": "Pe"}
-        for word, upper_word in acronyms.items():
-            text = text.replace(word, upper_word)
-        spaced = re.sub(r'([A-Z])', r' \1', text)
-        title_case = spaced.strip().title()
-        return title_case
 
+def _postprocess_info(info: dict, ticker: str) -> pd.DataFrame:
     key_list = [
         "longName", "sector", "industry", "longBusinessSummary", "quoteType", "lastFiscalYearEnd", "sharesOutstanding",
         "marketCap", "enterpriseValue",
@@ -50,21 +61,26 @@ def _postprocess_info(info: dict, ticker: str):
                     df[key] = [str(info[key])]
                 else:
                     df[key] = [pd.to_numeric(info[key], errors="coerce", downcast="float")]
-
     # lowerCamelCase -> Upper Camel Case
-    df.columns = [camel_to_title_case(col) for col in df.columns]
+    df.columns = [_camel_to_title_case(col) for col in df.columns]
     return df
 
 
-def _postprocess_fundamental(df: pd.DataFrame, ticker: str):
-    df = df.T
-    df = df.sort_index(axis=1)
-    df = df.reset_index(names="As Of Date")
-    # append aditional data
-    df["Ticker"] = ticker
-    df["As Of Date"] = df["As Of Date"].dt.date  # remove time in "As Of Date"
-    
-    df = df.set_index(["Ticker", "As Of Date"])
+def _postprocess_fundamental(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    try:
+        df = df.T
+        df = df.sort_index(axis=1)
+        df = df.reset_index(names="As Of Date")
+        # append aditional data
+        df["Ticker"] = ticker
+        df["As Of Date"] = df["As Of Date"].dt.date  # remove time in "As Of Date"
+        
+        df = df.set_index(["Ticker", "As Of Date"])
+    except Exception as e:
+        import pickle
+        with open(f"error_fundamental_{ticker}.pkl", "wb") as f:  # debug 용
+            pickle.dump(df, f)
+        raise e
 
     df = df.dropna(axis=1, thresh=len(df)//2)
     for col in df.columns:
@@ -72,28 +88,7 @@ def _postprocess_fundamental(df: pd.DataFrame, ticker: str):
     return df
 
 
-def _postprocess_ohlcv(df: pd.DataFrame, ticker: str):
-    # TODO: 이번주 날짜 주가만 필터링 하는 코드 추가하였는데, 잘 되는지 확인 필요
-    df = df[["Open", "High", "Low", "Close", "Volume"]].T
-    df.index.name = "Type"
-    df["Ticker"] = ticker
-    df = df.reset_index().set_index(["Ticker", "Type"])
-
-    # 이번주 날짜만 필터링
-    today = pd.Timestamp.now().date()
-    current_week_start = today - pd.Timedelta(days=today.weekday())  # 이번주 월요일
-    current_week_end = current_week_start + pd.Timedelta(days=6)  # 이번주 일요일
-    this_week_cols = [col for col in df.columns if current_week_start <= col.date() <= current_week_end]
-    if this_week_cols:
-        df = df[this_week_cols]
-
-    df.columns = [str(col.date()) for col in df.columns]
-    return df
-
-
-def _postprocess_estimates(
-        df: pd.DataFrame, ticker: str, info: pd.DataFrame, value_type: str="EPS"
-    ):
+def _postprocess_estimates(df: pd.DataFrame, ticker: str, info: pd.DataFrame, value_type: str="EPS") -> pd.DataFrame:
     if info["Last Fiscal Year End"].item().month == 2 and info["Last Fiscal Year End"].item().day == 29:
         info["Last Fiscal Year End"] = info["Last Fiscal Year End"].item().replace(day=28)
     
@@ -132,134 +127,98 @@ def _postprocess_estimates(
     return df
 
 
-def _request_with_retry(yf_ticker: yf.Ticker, download_type: str, max_retries: int, info: pd.DataFrame=None):
+def _postprocess_ohlcv(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    df = df.rename_axis("Date").reset_index()
+    df["Ticker"] = ticker
+    df = df.set_index(["Ticker", "Date"])
+    df["Trading Value"] = df["Close"] * df["Volume"]
+    return df[["Open", "High", "Low", "Close", "Volume", "Trading Value"]]
+
+
+def _request_with_retry(yf_ticker: yf.Ticker, yfdata_type: YFDataType, max_retries: int, info: pd.DataFrame=None):
     ticker_name = yf_ticker.ticker
+
     time.sleep(1 + random.random())
     for retry in range(max_retries):
         try:
-            if download_type == "info":
+            if yfdata_type == "info":
                 result = _postprocess_info(yf_ticker.info, ticker_name)
-                if "Quote Type" not in result or result["Quote Type"].item() is None:
-                    logging.warning(f"'{ticker_name}'는 Quote Type이 없습니다.")
-                    return None
-                elif result["Quote Type"].item().upper() == "ETF":
-                    return None
-                elif "ETF" in result["Long Name"].item().upper():
-                    return None
-                elif result["Quote Type"].item().upper() != "EQUITY":
-                    logging.warning(f"'{ticker_name}'는 Quote Type {result['Quote Type'].item()}입니다.")
-                    return None
-                elif "Sector" not in result or pd.isna(result["Sector"].item()) or result["Sector"].item() == "":
-                    return None
-                elif result.isna().sum(axis=1).item() >= len(result.columns) - 2:
-                    logging.warning(f"'{ticker_name}'는 info 데이터가 없습니다.")
-                    return None
-
-            elif download_type == "ohlcv":
-                result = _postprocess_ohlcv(yf_ticker.history(period="5d", raise_errors=True), ticker_name)
-            elif download_type == "income_statement":
-                result = _postprocess_fundamental(yf_ticker.income_stmt, ticker_name)
-            elif download_type == "income_statement_quarter":
-                result = _postprocess_fundamental(yf_ticker.quarterly_income_stmt, ticker_name)
-            elif download_type == "balance_sheet":
-                result = _postprocess_fundamental(yf_ticker.balance_sheet, ticker_name)
-            elif download_type == "balance_sheet_quarter":
-                result = _postprocess_fundamental(yf_ticker.quarterly_balance_sheet, ticker_name)
-            elif download_type == "cash_flow":
-                result = _postprocess_fundamental(yf_ticker.cash_flow, ticker_name)
-            elif download_type == "cash_flow_quarter":
-                result = _postprocess_fundamental(yf_ticker.quarterly_cashflow, ticker_name)
-            elif download_type == "estimates":
+            elif yfdata_type == "income_statement":
+                finance_df = yf_ticker.get_income_stmt(freq="yearly")
+                result = _postprocess_fundamental(finance_df, ticker_name)
+            elif yfdata_type == "income_statement_quarter":
+                finance_df = yf_ticker.get_income_stmt(freq="quarterly")
+                result = _postprocess_fundamental(finance_df, ticker_name)
+            elif yfdata_type == "balance_sheet":
+                finance_df = yf_ticker.get_balance_sheet(freq="yearly")
+                result = _postprocess_fundamental(finance_df, ticker_name)
+            elif yfdata_type == "balance_sheet_quarter":
+                finance_df = yf_ticker.get_balance_sheet(freq="quarterly")
+                result = _postprocess_fundamental(finance_df, ticker_name)
+            elif yfdata_type == "cash_flow":
+                finance_df = yf_ticker.get_cashflow(freq="yearly")
+                result = _postprocess_fundamental(finance_df, ticker_name)
+            elif yfdata_type == "cash_flow_quarter":
+                finance_df = yf_ticker.get_cashflow(freq="quarterly")
+                result = _postprocess_fundamental(finance_df, ticker_name)
+            elif yfdata_type == "estimates":
                 eps = _postprocess_estimates(yf_ticker.get_earnings_estimate(), ticker_name, info, "EPS")
                 sales = _postprocess_estimates(yf_ticker.get_revenue_estimate(), ticker_name, info, "Sales")
                 result = eps.join(sales, how="inner")
+            elif yfdata_type == "ohlcv":
+                result = _postprocess_ohlcv(yf_ticker.history(period="1y", raise_errors=True), ticker_name)
             return result
-        
-        except yf.exceptions.YFPricesMissingError as e:
-            logging.warning(f"'{ticker_name}'는 No data found 오류가 발생했습니다.")
-            return None
-        except AttributeError as e:
-            logging.warning(f"'{ticker_name}'는 AttributeError가 발생했습니다.")
-            return None
-        except TypeError as e:
-            logging.warning(f"'{ticker_name}'는 TypeError가 발생했습니다.")
-            return None
-        except IndexError as e:
-            logging.warning(f"'{ticker_name}'는 IndexError가 발생했습니다.")
-            return None
+
         except Exception as e:
             logging.warning(f"'{ticker_name}' 요청 실패 → 재시도: {e}")
-            logging.warning(traceback.format_exc())
+            error_msg = traceback.format_exc()
             time.sleep((2 ** retry) + random.random())
 
-    logging.warning(f"'{ticker_name}'의 '{download_type}' 데이터 요청에 실패했습니다.")
+    logging.warning(f"'{ticker_name}'의 '{yfdata_type}' 데이터 요청에 실패했습니다.")
+    logging.warning(error_msg)
     return None
 
 
-def _download(ticker: str, max_retries: int=10):
-    company = yf.Ticker(ticker)
-
-    # download info
-    info = _request_with_retry(company, "info", max_retries)
-    if info is None:
-        return None, None, None, None, None, None, None, None, None
-
-    # download stock info
-    ohlcv = _request_with_retry(company, "ohlcv", max_retries)
-    if ohlcv is None:
-        return None, None, None, None, None, None, None, None, None
-    
-    # download income statement
-    is_y = _request_with_retry(company, "income_statement", max_retries)
-    is_q = _request_with_retry(company, "income_statement_quarter", max_retries)
-
-    # download balance sheet
-    bs_y = _request_with_retry(company, "balance_sheet", max_retries)
-    bs_q = _request_with_retry(company, "balance_sheet_quarter", max_retries)
-
-    # download cash flow
-    cf_y = _request_with_retry(company, "cash_flow", max_retries)
-    cf_q = _request_with_retry(company, "cash_flow_quarter", max_retries)
-
-    # download estimates
-    estimates = _request_with_retry(company, "estimates", max_retries, info)
-                
-    return info, ohlcv, is_y, is_q, bs_y, bs_q, cf_y, cf_q, estimates
+def _download_single_ticker(ticker: str, max_retries: int=10) -> tuple:
+    ticker_data = {}
+    yf_ticker = yf.Ticker(ticker)
+    for yfdata_type in get_args(YFDataType):
+        if yfdata_type == "info":
+            info = _request_with_retry(yf_ticker, yfdata_type, max_retries)
+            if info is None:
+                ticker_data = None
+                break
+            else:
+                ticker_data[yfdata_type] = info
+        else:
+            result = _request_with_retry(yf_ticker, yfdata_type, max_retries, info)
+            if result is None:
+                ticker_data = None
+                break
+            else:
+                ticker_data[yfdata_type] = result
+    return ticker_data
 
 
-class YahooFinanceInfoDownloader:
+class YFDownloader:
     def __init__(self):
-        self.data = {
-            "info": None,
-            "ohlcv": None,
-            "income_statement": None,
-            "income_statement_quarter": None,
-            "balance_sheet": None,
-            "balance_sheet_quarter": None,
-            "cash_flow": None,
-            "cash_flow_quarter": None,
-            "estimates": None,
-        }
+        self.data = {k: [] for k in get_args(YFDataType)}
 
     def download(self, tickers: str | list[str], max_workers: int = 8):
         if isinstance(tickers, str):
             tickers = [tickers]
 
-        results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for result in tqdm(executor.map(_download, tickers), total=len(tickers)):
-                if result[0] is None or result[1] is None:
-                    continue
-                results.append(result)
-
-        for key in self.data.keys():
-            index = list(self.data.keys()).index(key)
-            self.data[key] = pd.concat([res[index] for res in results], axis=0)
+            for results_dict in tqdm(executor.map(_download_single_ticker, tickers), total=len(tickers)):
+                if results_dict is not None:
+                    for key, df in results_dict.items():
+                        self.data[key].append(df)
 
     def save(self, save_dir: str):
         # Save data to parquet files
         os.makedirs(save_dir, exist_ok=True)
-        for key, df in self.data.items():
-            if df is not None:
+        for key, df_list in self.data.items():
+            if df_list:
+                combined_df = pd.concat(df_list, axis=0)
                 save_path = os.path.join(save_dir, f"{key}.parquet")
-                df.to_parquet(save_path)
+                combined_df.to_parquet(save_path)

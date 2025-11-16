@@ -2,75 +2,108 @@ import re
 import requests
 
 import pandas as pd
-import yahoo_fin.stock_info as stock_info
 
 
-def normalize_ticker(ticker: str):
-    if ticker == "BRK/A" or ticker == "BRK.A":
-       ticker = "BRK-A"
-    elif ticker == "BRK/B" or ticker == "BRK.B":
-        ticker = "BRK-B"
-    elif re.match(r'\w+\.\w+', ticker):
-        ticker = ticker.split(".")[0]
-    elif "$" in ticker:
-        ticker = ticker.split("$")[0]
-
-    return ticker.replace(" ", "").strip()
+def to_raw_char(char):
+    if char in ['+', '-', '*', '/']:
+        return rf"\{char}"
+    return char
 
 
-def get_all_usa_tickers():
-    nasdaq = set(stock_info.tickers_nasdaq())
-    other = set(stock_info.tickers_other())
-    tickers = {normalize_ticker(ticker) for ticker in (nasdaq | other) if ticker}
+def remove_parentheses(text):
+    # 소괄호로 둘러싼 내용을 제거
+    text = re.sub(r'\(.*?\)', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()  # 중복된 공백 제거 및 양쪽 공백 제거
+    return text
 
-    return sorted(list(tickers))
+
+def get_start_words(text):
+    if text.lower().startswith("bank of"):
+        num_words = 3
+    elif text.lower().startswith("abrdn"):
+        num_words = 3
+    else:
+        num_words = 2
+    word_list = text.split()
+    words_text = " ".join(word_list[:num_words])
+    return words_text
 
 
-def get_usa_stocks_from_api(filter_by_market_cap=False, min_market_cap=1e6):
-    def remove_duplicate_tickers(df):
-        # Create a base ticker column by removing anything after the first special character (if it exists)
-        df['base_symbol'] = df['symbol'].str.split(r'[-/^]').str[0]
-        # Create a mask that identifies rows with base tickers that should be kept
-        base_ticker_mask = df.groupby('base_symbol')['symbol'].transform(lambda x: x.str.contains(r'[-/^]').any() and x.str.contains(r'[-/^]').sum() < len(x))
-        # Keep only the base ticker rows or rows without any subseries
-        filtered_df = df.loc[(df['symbol'] == df['base_symbol']) | ~base_ticker_mask].drop(columns='base_symbol')
-        return filtered_df
+def _get_special_ticker(ticker_series):
+    mask = ~ticker_series.str.contains(r"common|Common")
+    mask = mask | ticker_series.str.contains(r"Class B|Class C|Series B|Series C")
+    return ticker_series[mask].index.tolist()
 
-    headers = {
-        'authority': 'api.nasdaq.com',
-        'accept': 'application/json, text/plain, */*',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36',
-        'origin': 'https://www.nasdaq.com',
-        'sec-fetch-site': 'same-site',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-dest': 'empty',
-        'referer': 'https://www.nasdaq.com/',
-        'accept-language': 'en-US,en;q=0.9',
-    }
 
-    params = (
-        ('tableonly', 'true'),
-        ('limit', '25'),
-        ('offset', '0'),
-        ('download', 'true'),
-    )
+def _get_duplicate_usa_tickers(usa_df):
+    duplicate_tickers = set()
+    criteria = usa_df["Security Name"].apply(remove_parentheses)
+    for row in usa_df.itertuples():
+        base = row[0]
+        if base in duplicate_tickers:
+            continue
+        security_name = remove_parentheses(row[1])
+        target_name = to_raw_char(get_start_words(security_name))
+        target_criteria = criteria[criteria.index != base]  # 자기 자신 제외
+        mask = target_criteria.str.startswith(target_name)
+        if mask.any():
+            duplicate_candidates = target_criteria.index[mask].tolist()
+            for dup_cand in duplicate_candidates:
+                if dup_cand.startswith(base):
+                    duplicate_tickers.add(dup_cand)
+            special_tickers = _get_special_ticker(usa_df.loc[[base] + duplicate_candidates, "Security Name"])
+            duplicate_tickers.update(special_tickers)
 
-    r = requests.get('https://api.nasdaq.com/api/screener/stocks', headers=headers, params=params)
-    data = r.json()['data']
-    df = pd.DataFrame(data['rows'], columns=data['headers'])
-    df['volume'] = df['volume'].astype("Int64")
-    df["marketCap"] = pd.to_numeric(df["marketCap"], errors="coerce")
+    return list(duplicate_tickers)
 
-    filtered_df = remove_duplicate_tickers(df)
-    filtered_df = filtered_df.dropna(subset=["marketCap"])
-    filtered_df = filtered_df[filtered_df["volume"] > 100]
-    filtered_df = filtered_df.sort_values(["volume"], ascending=True)
-    filtered_df = filtered_df.drop_duplicates(subset=["name"], keep="last")
-    filtered_df = filtered_df.sort_values(["symbol"], ascending=True)
-    filtered_df["symbol"] = filtered_df["symbol"].apply(normalize_ticker)
-    filtered_df = filtered_df[filtered_df["marketCap"] > 0]
 
-    if filter_by_market_cap:
-        filtered_df = filtered_df[filtered_df["marketCap"] >= min_market_cap]
+def get_all_usa_tickers(do_filter=True, as_df=False):
+    # 1) 원천 파일 URL
+    url_nasdaq = "https://www.nasdaqtrader.com/dynamic/symdir/nasdaqlisted.txt"
+    url_other  = "https://www.nasdaqtrader.com/dynamic/symdir/otherlisted.txt"
 
-    return filtered_df
+    # 2) NASDAQ 전체 상장 (ETF/TestIssue 제외)
+    nasdaq = pd.read_csv(url_nasdaq, sep="|", dtype=str)
+    nasdaq = nasdaq[~nasdaq["Symbol"].str.startswith("File Creation Time", na=False)]
+    nasdaq = nasdaq[(nasdaq["ETF"] == "N") & (nasdaq["Test Issue"] == "N")]
+    nasdaq = nasdaq[~nasdaq['Symbol'].isna()]
+
+    # 3) NYSE+AMEX 전체 상장 (ETF/TestIssue 제외)
+    other = pd.read_csv(url_other, sep="|", dtype=str)
+    other = other[~other.iloc[:,0].str.startswith("File Creation Time", na=False)]
+    nyse_amex = other[other["Exchange"].isin(["N","A"])]                      # N=NYSE, A=NYSE American
+    nyse_amex = nyse_amex[(nyse_amex["ETF"] == "N") & (nyse_amex["Test Issue"] == "N")]
+    # 표준적으로 CQS Symbol을 표시용 티커로 많이 씁니다.
+    nyse_amex = nyse_amex[~nyse_amex['CQS Symbol'].isna()]
+
+    # 4) NASDAQ과 NYSE+AMEX 통합
+    nasdaq_df = nasdaq.rename(columns={'Symbol': 'Ticker'})
+    nyse_amex_df = nyse_amex.rename(columns={'CQS Symbol': 'Ticker'})
+    usa_df = pd.concat([nasdaq_df, nyse_amex_df], ignore_index=True, sort=True)
+    usa_df = usa_df.drop_duplicates(subset='Ticker', keep='first').reset_index(drop=True)
+    usa_df = usa_df.set_index('Ticker').sort_index()
+    usa_df = usa_df[["Security Name", "ETF", "Test Issue", "Round Lot Size"]]
+
+    # 5) 중복 티커 (우선주, rights, Units, Warrants 등) 제거
+    if do_filter:
+        # 1. ABRpD 패턴 제거
+        mask = usa_df.index.str.contains(rf'^[A-Z]+[p].+$')
+        usa_df = usa_df[~mask]
+        # 2. AACT.U, AACT.WS 패턴 제거
+        mask = usa_df.index.str.contains(rf'^[A-Z]+[.][UW][S]?$')
+        usa_df = usa_df[~mask]
+        # 3. NE.WS.A 패턴 제거
+        mask = usa_df.index.str.contains(rf'^[A-Z]+[.][A-Z]+[.][A-Z]+$')
+        usa_df = usa_df[~mask]
+        # 4. AKO.A, AKO.B가 존재할 경우, AKO.A만 남기고 그 외는 제거
+        mask = usa_df.index.str.contains(rf'^[A-Z]+[.][^A]$')
+        usa_df = usa_df[~mask]
+        # 5. 보통주가 아닌 특수주식 티커 제거
+        duplicate_tickers = _get_duplicate_usa_tickers(usa_df)
+        usa_df = usa_df[~usa_df.index.isin(duplicate_tickers)]
+        usa_df.index = usa_df.index.str.replace(".", "-")
+
+    if as_df:
+        return usa_df
+    else:
+        return usa_df.index.tolist()

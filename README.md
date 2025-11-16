@@ -68,3 +68,7 @@ fair price = (fair PER / forward PER) * price
 
 ### 기타
 - 순자산가치(Net Asset Value): (Total Assets - Total Lialilities) / 발행 주식 수
+
+
+### 참고 레퍼런스
+- https://www.fmkorea.com/4161618710

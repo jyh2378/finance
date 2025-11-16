@@ -12,7 +12,9 @@ from utils import *
 
 
 class Database:
-    def __init__(self, load_dir: str | None = None):
+    # TODO: fundamental 점수 측정 알고리즘 개발
+    # TODO: 차트 분석 알고리즘 개발(%b, 과거 대비 거래량 증가, 거래대금 증가율 대비 주가 상승률)
+    def __init__(self, load_dir: str | None = None, load_ohlcv: bool = False):
         nation = "usa" # usa, kor
         root = f"DB/{nation}"
         if load_dir is None:
@@ -30,7 +32,6 @@ class Database:
         assert len(self.version) == 6 and self.version.isdigit(), "Version format must be yymmdd."
 
         self.info = pd.read_parquet(f"{load_dir}/info.parquet")
-        self.ohlcv = pd.read_parquet(f"{load_dir}/ohlcv.parquet")
         self.income_statement = pd.read_parquet(f"{load_dir}/income_statement.parquet")
         self.income_statement_quarter = pd.read_parquet(f"{load_dir}/income_statement_quarter.parquet")
         self.balance_sheet = pd.read_parquet(f"{load_dir}/balance_sheet.parquet")
@@ -38,6 +39,10 @@ class Database:
         self.cash_flow = pd.read_parquet(f"{load_dir}/cash_flow.parquet")
         self.cash_flow_quarter = pd.read_parquet(f"{load_dir}/cash_flow_quarter.parquet")
         self.estimates = pd.read_parquet(f"{load_dir}/estimates.parquet").sort_index()
+        if load_ohlcv:
+            self.ohlcv = pd.read_parquet(f"{load_dir}/ohlcv.parquet")
+        else:
+            self.ohlcv = None
 
         self.sector_list = self.info["Sector"].replace("", None).dropna().unique().tolist()
         self.industry_list = self.info["Industry"].replace("", None).dropna().unique().tolist()
@@ -125,24 +130,23 @@ class Database:
             self.valuation_df[f"Forward PEGR Fair Price {period}"] = fair_price
             return fair_price
 
-    def get_prices(self, period: Literal['1d', '5d'] = '1d'):
-        if period == '1d':
-            col = self.ohlcv.columns[-1]
-        elif period == '5d':
-            col = self.ohlcv.columns[-5:]
-        ohlcv = self.ohlcv[col]
-        return ohlcv.xs("Close", level="Type")
+    def _select_ohlcv(self, target_date: pd.Timestamp):
+        return self.ohlcv.xs(target_date, level="Date")
 
-    def get_volumes(self, period: Literal['1d', '5d'] = '1d'):
-        if period == '1d':
-            col = self.ohlcv.columns[-1]
-        elif period == '5d':
-            col = self.ohlcv.columns[-5:]
-        ohlcv = self.ohlcv[col]
-        return ohlcv.xs("Volume", level="Type")
+    def get_prices(self):
+        dates = self.ohlcv.index.get_level_values("Date")
+        target_date = find_closest_before_date(dates, self.version, strptime_fmt='%y%m%d')
+        return self._select_ohlcv(target_date).loc[:, "Close"]
 
-    def get_trading_values(self, period: Literal['1d', '5d'] = '1d'):
-        return self.get_prices(period) * self.get_volumes(period)
+    def get_volumes(self):
+        dates = self.ohlcv.index.get_level_values("Date")
+        target_date = find_closest_before_date(dates, self.version, strptime_fmt='%y%m%d')
+        return self._select_ohlcv(target_date).loc[:, "Volume"]
+
+    def get_trading_values(self):
+        dates = self.ohlcv.index.get_level_values("Date")
+        target_date = find_closest_before_date(dates, self.version, strptime_fmt='%y%m%d')
+        return self._select_ohlcv(target_date).loc[:, "Trading Value"]
 
     def get_basic_eps(self, before: int = None):
         # before: 1 = last year, 2 = 2 year ago ...
