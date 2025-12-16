@@ -45,6 +45,8 @@ fair price = (fair PER / forward PER) * price
 
 
 ## 계정 항목 정리
+![제무제표 용어](assets/재무제표_용어.jpg)
+
 #### 손익계산서(Income Statement)
 - 매출: Revenue
 - 매출 이익: Gross Profit(=Revenue - Cost of Goods Sold)
