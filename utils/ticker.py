@@ -84,7 +84,10 @@ def get_all_usa_tickers(do_filter=True, as_df=False):
     usa_df = usa_df.set_index('Ticker').sort_index()
     usa_df = usa_df[["Security Name", "ETF", "Test Issue", "Round Lot Size"]]
 
-    # 5) 중복 티커 (우선주, rights, Units, Warrants 등) 제거
+    # 5) 우선주 티커 포맷 변경 (e.g. "ETIp" -> "ETI-P")
+    usa_df.index = usa_df.index.str.replace(r'([A-Z]+)p$', r'\1-P', regex=True)
+
+    # 6) 중복 티커 (우선주, rights, Units, Warrants 등) 제거
     if do_filter:
         # 1. ABRpD 패턴 제거
         mask = usa_df.index.str.contains(rf'^[A-Z]+[p].+$')
