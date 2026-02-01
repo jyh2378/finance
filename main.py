@@ -1,16 +1,14 @@
-import datetime
-import requests
-
-from core import YFDownloader
-from utils import *
+from finance.datafetcher import USADataFetcher
+from finance.utils import *
 
 
 if __name__ == "__main__":
-    set_logger()
+    set_logger("log.txt")
 
     all_tickers = get_all_usa_tickers()
     today = get_today(to_str=True, str_format="%y%m%d")
 
-    yf_downloader = YFDownloader()
-    yf_downloader.download(all_tickers, max_workers=8)
-    yf_downloader.save(f"DB/usa/{today}")
+    data_fetcher = USADataFetcher()
+    data_fetcher.fetch_base_data(all_tickers, save_dir=f"data/usa", max_workers=8)
+    # data_fetcher.fetch_ohlcv(all_tickers, save_dir=f"data/usa")
+    
